@@ -11,31 +11,97 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
-import java.util.Set;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.UUID;
+
+import static android.widget.Toast.LENGTH_SHORT;
+
 
 public class MainActivity extends AppCompatActivity {
 
+
+    private class ConnectedThread extends Thread {
+
+        private final InputStream mInStream;
+        private final OutputStream mOutStream;
+        Handler mHandler;
+
+        public ConnectedThread(BluetoothSocket mSocket, Handler uih) {
+
+            InputStream tmpIn   = null;
+            OutputStream tmpOut = null;
+            mHandler = uih;
+
+            Log.i("[THREAD]","Creating thread");
+
+            try {
+                tmpIn  = mSocket.getInputStream();
+                tmpOut = mSocket.getOutputStream();
+
+            } catch (IOException e) {
+                Log.e("[THREAD]","Error:"+e.getMessage());
+            }
+            this.mInStream  = tmpIn;
+            this.mOutStream = tmpOut;
+
+        }
+
+        public void run(){
+
+            byte[] buffer = new byte[256];
+
+            while (true) {
+                try {
+
+                    int bytes = this.mInStream.read(buffer);
+                    mHandler.obtainMessage(0,bytes,-1,
+                            new  String(buffer,0,bytes)).sendToTarget();
+
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    break;
+                }
+
+            }
+        }
+        public void write(String input){
+
+            try {
+                mOutStream.write(input.getBytes());
+            } catch (IOException e) {
+                e.printStackTrace();
+
+            }
+        }
+
+    }
+
+
     private int REQUEST_Enable_BT = 10;
-    private final UUID myUuid = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
+    private static final UUID myUuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     public Handler mHandler;
+    private String address;
+    TextView connectedDevice;
 
     // the UUID of bluetooth module HC-06 is 00001101-0000-1000-8000-00805f9b34fb
+    // 00001101-0000-1000-8000-00805F9B34FB
 
     ImageButton Up, Right, Left, Down, Stop;
+    Button Connect;
 
     BluetoothAdapter bluetoothAdapter;
-    BluetoothDevice mDevice;
-    BluetoothSocket mSocket;
+    BluetoothDevice  mDevice;
+    BluetoothSocket  mSocket;
 
+    ConnectedThread btt ;
 
-    String deviceName, deviceHardwareAddress;
-
-    ConnectedThread btt = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,21 +113,29 @@ public class MainActivity extends AppCompatActivity {
         Left  = findViewById(R.id.Left);
         Down  = findViewById(R.id.Down);
         Stop  = findViewById(R.id.Stop);
+        Connect = findViewById(R.id.Connect);
+        connectedDevice = findViewById(R.id.ConnectedDevice);
+
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        checkBTState();
+
+        Connect.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Intent deviceList = new Intent(MainActivity.this,DeviceList.class);
+                startActivity(deviceList);
+            }
+        });
 
         Up.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
 
-                if(mSocket.isConnected() && btt != null){
-
+                if(address != null) {
                     String sendTxt = "UP";
-                    btt.write(sendTxt.getBytes());
-                    Toast.makeText(getApplicationContext(),"UP",Toast.LENGTH_SHORT).show();
-
-                }else {
-                    Toast.makeText(getApplicationContext(),"Something gets wrong",Toast.LENGTH_SHORT).show();
+                    btt.write(sendTxt);
+                    Toast.makeText(getApplicationContext(), "UP", LENGTH_SHORT).show();
                 }
-
             }
         });
 
@@ -69,15 +143,11 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
 
-                if(mSocket.isConnected() && btt != null){
-
+                if(address != null) {
                     String sendTxt = "Right";
-                    btt.write(sendTxt.getBytes());
-                    Toast.makeText(getApplicationContext(),"Right",Toast.LENGTH_SHORT).show();
-                }else {
-                    Toast.makeText(getApplicationContext(),"Something gets wrong",Toast.LENGTH_SHORT).show();
+                    btt.write(sendTxt);
+                    Toast.makeText(getApplicationContext(), "Right", LENGTH_SHORT).show();
                 }
-
             }
         });
 
@@ -85,16 +155,11 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
 
-
-                if(mSocket.isConnected() && btt != null){
-
+                if(address != null) {
                     String sendTxt = "Left";
-                    btt.write(sendTxt.getBytes());
-                    Toast.makeText(getApplicationContext(),"Left",Toast.LENGTH_SHORT).show();
-                }else {
-                    Toast.makeText(getApplicationContext(),"Something gets wrong",Toast.LENGTH_SHORT).show();
+                    btt.write(sendTxt);
+                    Toast.makeText(getApplicationContext(), "Left", LENGTH_SHORT).show();
                 }
-
             }
         });
 
@@ -102,13 +167,10 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
 
-                if(mSocket.isConnected() && btt != null){
-
+                if (address != null) {
                     String sendTxt = "Down";
-                    btt.write(sendTxt.getBytes());
-                    Toast.makeText(getApplicationContext(),"Down",Toast.LENGTH_SHORT).show();
-                }else {
-                    Toast.makeText(getApplicationContext(),"Something gets wrong",Toast.LENGTH_SHORT).show();
+                    btt.write(sendTxt);
+                    Toast.makeText(getApplicationContext(), "Down", LENGTH_SHORT).show();
                 }
             }
         });
@@ -117,17 +179,59 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
 
-                if(mSocket.isConnected() && btt != null){
-
+                if (address != null) {
                     String sendTxt = "Stop";
-                    btt.write(sendTxt.getBytes());
-                    Toast.makeText(getApplicationContext(),"Stop",Toast.LENGTH_SHORT).show();
-                }else {
-                    Toast.makeText(getApplicationContext(),"Something gets wrong",Toast.LENGTH_SHORT).show();
+                    btt.write(sendTxt);
+                    Toast.makeText(getApplicationContext(), "Stop", LENGTH_SHORT).show();
                 }
             }
+
         });
 
+    }
+    public void onResume(){
+        super.onResume();
+
+        address = getIntent().getStringExtra("device address");
+
+        if(address != null) {
+            bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+            mDevice = bluetoothAdapter.getRemoteDevice(address);
+            connectedDevice.setText("Connected to " + mDevice.getName());
+            connectedDevice.setTextColor(getResources().getColor(R.color.Green));
+            try {
+                mSocket = mDevice.createRfcommSocketToServiceRecord(myUuid);
+            } catch (IOException e) {
+                e.printStackTrace();
+                Toast.makeText(getBaseContext(), "Socket creation failed", Toast.LENGTH_LONG).show();
+            }
+
+            try {
+                mSocket.connect();
+            } catch (IOException e) {
+                try {
+                    mSocket.close();
+                } catch (IOException e1) {
+                    e1.printStackTrace();
+                }
+                e.printStackTrace();
+            }
+            btt = new ConnectedThread(mSocket, mHandler);
+            btt.start();
+
+        }
+    }
+    public void onPause(){
+        super.onPause();
+
+        /*try {
+            mSocket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }*/
+    }
+
+    private void checkBTState(){
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
@@ -145,83 +249,12 @@ public class MainActivity extends AppCompatActivity {
                     })
                     .show();
         }
-
-        if (!bluetoothAdapter.isEnabled()){
+        else if (!bluetoothAdapter.isEnabled()){
             Intent enableBluetoothIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivityForResult(enableBluetoothIntent,REQUEST_Enable_BT);
-            Toast.makeText(getApplicationContext(),"Bluetooth is On",Toast.LENGTH_SHORT).show();
+            Toast.makeText(getApplicationContext(),"Bluetooth is On", LENGTH_SHORT).show();
         }
-
-        // checking the paired devices
-        Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
-
-        if(pairedDevices.size() > 0){
-            // there are paired devices
-            for(BluetoothDevice device : pairedDevices){
-                // I assume you just paired to one device, the device you want to connect
-                deviceName            = device.getName();
-                deviceHardwareAddress = device.getAddress();     // Mac address
-            }
-        }
-
-        intiateBluetoothProcess();
 
     }
 
-
-    public void intiateBluetoothProcess(){
-
-        if(bluetoothAdapter.isEnabled()){
-            //Attempt to connect the device
-
-            BluetoothSocket tmp = null;
-
-            mDevice = bluetoothAdapter.getRemoteDevice(deviceHardwareAddress);
-
-            // create a socket
-            try{
-
-                tmp = mDevice.createRfcommSocketToServiceRecord(myUuid);
-                mSocket = tmp;
-                mSocket.connect();
-
-                Log.i("[Bluetooth]","connected to"+mDevice.getName());
-                Toast.makeText(getApplicationContext(),"Connected to" + mDevice.getName(),Toast.LENGTH_SHORT).show();
-
-            } catch (IOException e) {
-                e.printStackTrace();
-
-                try {
-                    mSocket.close();
-                } catch (IOException e1) {
-                    e1.printStackTrace();
-                    return;
-                }
-            }
-            Log.i("[Bluetooth]","Creating Handler");
-
-            /*mHandler = new Handler(Looper.getMainLooper()){
-
-                public void handleMessage(Message msg){
-
-                    //super.handleMessage(msg);
-                    if(msg.what == ConnectedThread.RESPONSE_MESSAGE){
-                        String txt = (String) msg.obj;
-                        response.append("\n"+txt);
-                    }
-                }
-            };*/
-            Log.i("[BLUETOOTH]", "Creating and running Thread");
-            btt = new ConnectedThread(mSocket,mHandler);
-            btt.start();
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if(resultCode == RESULT_OK && requestCode == REQUEST_Enable_BT){
-            intiateBluetoothProcess();
-        }
-    }
 }
