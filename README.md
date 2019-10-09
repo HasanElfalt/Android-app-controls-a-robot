@@ -1,4 +1,4 @@
-# Android-app-controls-a-robot
+# Robot Controlling
 This project is an android application that can control a robot through bluetooth module.
 
 # Getting Started
